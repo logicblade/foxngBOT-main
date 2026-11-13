@@ -7,6 +7,7 @@ import {
   awaitingAccountUpdate,
   awaitingDiscount,
   awaitingBroadcast,
+  awaitingConfigSend,
   awaitingSubscribers,
   getConfigCache,
   getConfigsPanel,
@@ -385,6 +386,18 @@ export class TelBot {
       await ctx.answerCallbackQuery().catch(() => {});
     });
 
+    this.bot.callbackQuery("owner:send-config", async (ctx) => {
+      if (!isOwner(ctx.from?.id!)) {
+        await ctx.answerCallbackQuery({ text: "⛔ فقط مالک" });
+        return;
+      }
+      awaitingConfigSend.add(ctx.from.id);
+      await ctx.reply("پیام خود را ارسال کنید تا متن شما همراه لینک سابسکریپشن اختصاصی برای مشترکین فعال فرستاده شود:", {
+        reply_markup: cancelActionMenu(),
+      });
+      await ctx.answerCallbackQuery().catch(() => {});
+    });
+
     this.bot.callbackQuery("owner:backup", async (ctx) => {
       await handleBackup(ctx, db);
       await ctx.answerCallbackQuery().catch(() => {});
@@ -607,6 +620,7 @@ export class TelBot {
       const id = ctx.from?.id!;
       awaitingBroadcast.delete(id);
       awaitingSubscribers.delete(id);
+      awaitingConfigSend.delete(id);
       awaitingAddAdmin.delete(id);
       awaitingDiscount.delete(id);
       awaitingAccountUpdate.delete(id);

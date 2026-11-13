@@ -58,6 +58,8 @@ export function ownerMainMenu(pendingCount: number): InlineKeyboard {
     .text("📢 پیام همگانی", "owner:broadcast")
     .text("💎 پیام به مشترکین", "owner:subscribers")
     .row()
+    .text("🔗 ارسال کانفیگ", "owner:send-config")
+    .row()
     .text("💾 بکاپ دیتابیس", "owner:backup")
     .text("👥 مدیریت ادمین‌ها", "owner:admins")
     .row()

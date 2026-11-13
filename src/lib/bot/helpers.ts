@@ -93,6 +93,7 @@ export const pendingOrderFlow = new Map<
 /** Owner/admin compose states: broadcast / subscribers / add-admin. */
 export const awaitingBroadcast = new Set<number>();
 export const awaitingSubscribers = new Set<number>();
+export const awaitingConfigSend = new Set<number>();
 export const awaitingAddAdmin = new Set<number>();
 export const awaitingDiscount = new Set<number>();
 export const awaitingAccountUpdate = new Map<number, "card-number" | "card-owner">();
@@ -1383,6 +1384,63 @@ export async function activeSubscriberIds(db: DB): Promise<number[]> {
   return [...active];
 }
 
+async function activeSubscriptionLinks(db: DB): Promise<Map<number, string[]>> {
+  const knownUsers = new Set(db.getAllUsers().map((user) => user.tg_id));
+  const linksByUser = new Map<number, Set<string>>();
+  const now = Date.now();
+
+  for (const panel of getAllPanels(db)) {
+    try {
+      const response = await panel.getClients();
+      if (!response) {
+        console.error(`Could not read clients from panel "${panel.name}"`);
+        continue;
+      }
+
+      for (const client of response.obj ?? []) {
+        const rawUserId = String(client.tgId || client.comment || "");
+        const userId = Number(rawUserId);
+        if (!Number.isSafeInteger(userId) || !knownUsers.has(userId)) continue;
+
+        const used =
+          (client.up ?? 0) +
+          (client.down ?? 0) +
+          (client.traffic?.up ?? 0) +
+          (client.traffic?.down ?? 0);
+        const timeOk = !client.expiryTime || client.expiryTime === 0 || client.expiryTime > now;
+        const volumeOk = !client.totalGB || client.totalGB === 0 || client.totalGB - used > 0;
+        if (!client.enable || !timeOk || !volumeOk) continue;
+
+        let links = linksByUser.get(userId);
+        if (!links) {
+          links = new Set<string>();
+          linksByUser.set(userId, links);
+        }
+        if (!client.subId?.trim()) {
+          console.error(
+            `Active client on panel "${panel.name}" has no subscription ID (user ${userId})`,
+          );
+          continue;
+        }
+        try {
+          links.add(await panel.getSubscriptionUrl(client.subId));
+        } catch (error) {
+          console.error(
+            `Failed to resolve subscription link for user ${userId} on panel "${panel.name}":`,
+            error,
+          );
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to collect subscription links from panel "${panel.name}":`, error);
+    }
+  }
+
+  return new Map(
+    [...linksByUser].map(([userId, links]) => [userId, [...links]]),
+  );
+}
+
 async function copyMessageToUser(ctx: Context, targetId: number): Promise<boolean> {
   const msg = ctx.message!;
   try {
@@ -1441,6 +1499,74 @@ export async function handleOwnerComposedMessage(ctx: Context, db: DB): Promise<
       await Util.sleep(60);
     }
     await ctx.api.editMessageText(status.chat.id, status.message_id, `📢 گزارش پیام همگانی\n\n👥 کل: ${users.length}\n✅ موفق: ${ok}\n❌ ناموفق: ${fail}`, { reply_markup: backToAdminMainMenu() }).catch(() => {});
+    await showPrivilegedMain(ctx, db);
+    return true;
+  }
+  if (awaitingConfigSend.has(adminId)) {
+    const text = ctx.message?.text?.trim();
+    if (!text) {
+      await ctx.reply("❌ لطفاً متن پیام را ارسال کنید. برای لغو، دکمهٔ لغو را بزنید.", {
+        reply_markup: cancelActionMenu(),
+      });
+      return true;
+    }
+    if (text.length > 3000) {
+      await ctx.reply("❌ متن پیام حداکثر ۳۰۰۰ نویسه باشد تا لینک سابسکریپشن هم جا شود. کوتاه‌تر بفرستید:", {
+        reply_markup: cancelActionMenu(),
+      });
+      return true;
+    }
+
+    awaitingConfigSend.delete(adminId);
+    const recipients = await activeSubscriptionLinks(db);
+    let ok = 0;
+    let fail = 0;
+    const status = await ctx.reply(
+      `🔗 شروع ارسال پیام و لینک اختصاصی به ${recipients.size} کاربر دارای اشتراک فعال...`,
+    );
+
+    for (const [userId, links] of recipients) {
+      if (links.length === 0) {
+        fail++;
+        continue;
+      }
+      try {
+        const chunks: string[][] = [];
+        let chunk: string[] = [];
+        for (const link of links) {
+          const candidate = [...chunk, link];
+          const message = `${text}\n\n🔗 لینک سابسکریپشن:\n${candidate.join("\n")}`;
+          if (message.length > 4096 && chunk.length > 0) {
+            chunks.push(chunk);
+            chunk = [link];
+          } else if (message.length > 4096) {
+            throw new Error("Subscription link exceeds Telegram message length limit");
+          } else {
+            chunk = candidate;
+          }
+        }
+        if (chunk.length > 0) chunks.push(chunk);
+
+        for (const linkChunk of chunks) {
+          await ctx.api.sendMessage(
+            userId,
+            `${text}\n\n🔗 لینک سابسکریپشن:\n${linkChunk.join("\n")}`,
+          );
+          await Util.sleep(60);
+        }
+        ok++;
+      } catch (error) {
+        fail++;
+        console.error(`Failed to send personalized subscription message to ${userId}:`, error);
+      }
+    }
+
+    await ctx.api.editMessageText(
+      status.chat.id,
+      status.message_id,
+      `🔗 گزارش ارسال کانفیگ\n\n👥 کاربران دارای اشتراک فعال: ${recipients.size}\n✅ موفق: ${ok}\n❌ ناموفق: ${fail}`,
+      { reply_markup: backToAdminMainMenu() },
+    );
     await showPrivilegedMain(ctx, db);
     return true;
   }
