@@ -9,7 +9,7 @@ if [ ! -t 0 ]; then
 fi
 
 ### ===== CONFIG =====
-REPO_URL="https://github.com/logicblade/foxngBOT.git"
+REPO_URL="https://github.com/logicblade/foxngBOT-main.git"
 APP_NAME="FoxNGBot"
 INSTALL_DIR="/opt/$APP_NAME"
 SERVICE_NAME="$APP_NAME.service"

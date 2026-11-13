@@ -593,7 +593,10 @@ export async function sendSubscriptionPhoto(
   userId: number,
   subscriptionUrl: string,
   title: string,
-  details: { volumeGB: number; durationDays: number },
+  details: {
+    remainingGB: number | string;
+    durationDays: number | string;
+  },
 ): Promise<void> {
   const qrBuffer = await QRCode.toBuffer(subscriptionUrl, {
     type: "png",
@@ -614,9 +617,15 @@ export async function sendSubscriptionPhoto(
         return "&gt;";
     }
   });
+  const remaining = typeof details.remainingGB === "number"
+    ? `${details.remainingGB} گیگابایت`
+    : details.remainingGB;
+  const duration = typeof details.durationDays === "number"
+    ? `${details.durationDays} روز`
+    : details.durationDays;
 
   await ctx.api.sendPhoto(userId, new InputFile(qrBuffer, "subscription.png"), {
-    caption: `${title}\n\n📦 حجم: ${details.volumeGB} گیگابایت\n⏳ مدت: ${details.durationDays} روز\n\n📲 بارکد بالا را اسکن کنید یا لینک را کپی کنید:\n\n🔗 لینک سابسکریپشن:\n\n<code>${escapedUrl}</code>`,
+    caption: `${title}\n\n📊 حجم باقی‌مانده: ${remaining}\n⏳ مدت: ${duration}\n\n📲 بارکد بالا را اسکن کنید.\n🔗 لینک سابسکریپشن (برای کپی، یک‌بار روی لینک زیر بزنید):\n\n<code>${escapedUrl}</code>`,
     parse_mode: "HTML",
     reply_markup: backToMainMenu(),
   });
@@ -642,7 +651,10 @@ async function fulfillBuyOrder(ctx: Context, db: DB, order: Order): Promise<void
       userId,
       subscriptionUrl,
       "اشتراک شما با موفقیت فعال شد ✅",
-      { volumeGB: order.volume_gb, durationDays: order.duration_days },
+      {
+        remainingGB: order.volume_gb,
+        durationDays: order.duration_days,
+      },
     );
   } catch (e) {
     console.error("send subscription link to user failed", e);
@@ -671,6 +683,19 @@ async function fulfillRenewOrder(ctx: Context, db: DB, order: Order): Promise<vo
   );
   const requestedBytes = Util.gigsToBytes(order.volume_gb);
   const totalGB = existing.totalGB === 0 ? 0 : existing.totalGB + requestedBytes;
+  const currentConfig = existing.totalGB === 0
+    ? undefined
+    : (await panel.getUserConfigs(userId))?.find((config) => config.uuid === uuid);
+  if (existing.totalGB !== 0 && !currentConfig) {
+    throw new PanelLoginError(panel.name, "could not read current subscription usage");
+  }
+  const remainingGB = existing.totalGB === 0
+    ? "نامحدود"
+    : Number(
+        Util.bytesToGB(
+          Math.max(0, currentConfig!.remainingBytes + requestedBytes),
+        ).toFixed(2),
+      );
   const expiryTime = Date.now() + Util.getUnixTimeOf({ days: order.duration_days });
 
   const res = await panel.updateClient(email, {
@@ -695,7 +720,10 @@ async function fulfillRenewOrder(ctx: Context, db: DB, order: Order): Promise<vo
       userId,
       subscriptionUrl,
       "اشتراک شما با موفقیت تمدید شد ✅",
-      { volumeGB: order.volume_gb, durationDays: order.duration_days },
+      {
+        remainingGB,
+        durationDays: order.duration_days,
+      },
     );
   } catch (e) {
     console.error("send renewed subscription link to user failed", e);

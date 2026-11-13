@@ -8,7 +8,7 @@ if [ ! -t 0 ]; then
 fi
 
 ### ===== CONFIG =====
-REPO_URL="https://github.com/logicblade/sh-bot.git"
+REPO_URL="https://github.com/logicblade/foxngBOT-main.git"
 APP_NAME="FoxNG"
 INSTALL_DIR="/opt/$APP_NAME"
 SERVICE_NAME="$APP_NAME.service"
@@ -33,7 +33,7 @@ fi
 if [ ! -d "$INSTALL_DIR" ]; then
   echo "Installation directory not found: /opt/FoxNG or /opt/FoxNGBot"
   echo "Run the installer first:"
-  echo "  bash <(curl -fsSL https://raw.githubusercontent.com/logicblade/sh-bot/refs/heads/main/install.sh)"
+  echo "  bash <(curl -fsSL https://raw.githubusercontent.com/logicblade/foxngBOT-main/refs/heads/main/install.sh)"
   exit 1
 fi
 

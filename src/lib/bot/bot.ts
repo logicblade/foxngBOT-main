@@ -8,7 +8,6 @@ import {
   awaitingDiscount,
   awaitingBroadcast,
   awaitingSubscribers,
-  genConfig,
   getConfigCache,
   getConfigsPanel,
   handleBackup,
@@ -680,7 +679,7 @@ export class TelBot {
               subscriptionUrl,
               "اشتراک شما با موفقیت فعال شد ✅",
               {
-                volumeGB: type === "250" ? 30 : 65,
+                remainingGB: type === "250" ? 30 : 65,
                 durationDays: 30,
               },
             );
@@ -792,7 +791,7 @@ export class TelBot {
             subscriptionUrl,
             "اشتراک شما با موفقیت تمدید شد ✅",
             {
-              volumeGB: type === "250" ? 30 : 65,
+              remainingGB: type === "250" ? 30 : 65,
               durationDays: 30,
             },
           );
@@ -806,29 +805,55 @@ export class TelBot {
     this.bot.callbackQuery(/^getConfig:/, async (ctx) => {
       const index = Number(ctx.callbackQuery?.data?.replace("getConfig:", ""));
       const userID = ctx.from?.id!;
-
       const configs = getConfigCache[userID];
-
-      if (!configs) return;
-
+      if (!Number.isInteger(index) || !configs || index < 0 || index >= configs.length) {
+        await ctx.answerCallbackQuery({ text: "اطلاعات اشتراک پیدا نشد." });
+        return;
+      }
       const selected = configs[index];
+      if (!selected) {
+        await ctx.answerCallbackQuery({ text: "اطلاعات اشتراک پیدا نشد." });
+        return;
+      }
+      try {
+        const panel = await getConfigsPanel(selected.uuid, db);
+        if (!panel) throw new Error("Panel for selected subscription was not found");
 
-      const panel = await getConfigsPanel(selected?.uuid!, db);
+        const email = Util.removeEmoji(selected.email).split("-").slice(1).join("-");
+        const stored = await panel.getStoredClient(email);
+        const subscriptionUrl = await panel.getSubscriptionUrl(stored?.subId ?? "");
+        const durationDays = selected.expiryTime === 0
+          ? "نامحدود"
+          : Math.max(
+              0,
+              Math.ceil(
+                (selected.expiryTime - Date.now()) /
+                  Util.getUnixTimeOf({ days: 1 }),
+              ),
+            );
 
-      const { qrFile, configLink } = await genConfig(
-        panel!,
-        Util.removeEmoji(selected?.email.split("-").slice(1).join("-")!),
-        selected?.uuid!,
-        selected?.inboundID,
-      );
-
-      await ctx.deleteMessage().catch(() => {});
-      await ctx.api.sendPhoto(userID, qrFile, {
-        caption: `لینک کانفیگ شما به نام ${Util.removeEmoji(selected?.email!)} 👇\n(برای کپی کردن لینک یک بار روی آن کلیک کنید.)\n\n<code>${configLink}</code>`,
-        parse_mode: "HTML",
-        reply_markup: backToMainMenu(),
-      });
-      await ctx.answerCallbackQuery();
+        await sendSubscriptionPhoto(
+          ctx,
+          userID,
+          subscriptionUrl,
+          `لینک سابسکریپشن ${Util.removeEmoji(selected.email)}`,
+          {
+            remainingGB: selected.totalBytes === 0
+              ? "نامحدود"
+              : Number(
+                  Util.bytesToGB(Math.max(0, selected.remainingBytes)).toFixed(2),
+                ),
+            durationDays,
+          },
+        );
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.answerCallbackQuery();
+      } catch (error) {
+        console.error("Failed to send subscription link from config button:", error);
+        await ctx.answerCallbackQuery({
+          text: "دریافت لینک سابسکریپشن ناموفق بود.",
+        });
+      }
     });
   }
 }
