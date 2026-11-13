@@ -171,6 +171,13 @@ export class DB {
     return deleted;
   }
 
+  deletePanelById(id: number): boolean {
+    const result = this.db
+      .prepare("DELETE FROM credentials WHERE id = ?")
+      .run(id);
+    return result.changes > 0;
+  }
+
   /**
    * Replaces an existing panel (matched by its current name) with new credentials
    * in place, so anything referencing the panel keeps a single row to point at.

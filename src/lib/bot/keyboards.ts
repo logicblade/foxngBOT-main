@@ -150,8 +150,18 @@ export function appStateMenu(isSellActive: boolean, isRenewActive: boolean): Inl
 /** Panels management: one replace button per panel. */
 export function panelsMenu(panels: { id: number; name: string }[]): InlineKeyboard {
   const kb = new InlineKeyboard();
-  for (const p of panels) kb.text(`🔁 جایگزینی: ${p.name}`, `panel:replace:${p.id}`).row();
+  for (const p of panels) {
+    kb.text(`🔁 جایگزینی: ${p.name}`, `panel:replace:${p.id}`)
+      .text("🗑 حذف", `panel:delete:${p.id}`)
+      .row();
+  }
   kb.text("➕ افزودن پنل", "owner:panel:add").row();
   kb.text("🔙 بازگشت به منوی اصلی", CB.adminMain);
   return kb;
+}
+
+export function confirmPanelDeleteMenu(panelId: number): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("✅ بله، حذف شود", `panel:delete:confirm:${panelId}`)
+    .text("❌ لغو", "owner:panels");
 }

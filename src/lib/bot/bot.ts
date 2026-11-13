@@ -72,8 +72,10 @@ import {
   backToAdminMainMenu,
   backToMainMenu,
   cancelActionMenu,
+  confirmPanelDeleteMenu,
   orderCleanupConfirmMenu,
   orderDecisionMenu,
+  panelsMenu,
   pendingOrdersMenu,
   planMenu,
 } from "./keyboards";
@@ -515,6 +517,41 @@ export class TelBot {
         return;
       }
       await startPanelReplace(ctx, db, id);
+    });
+
+    this.bot.callbackQuery(/^panel:delete:(\d+)$/, async (ctx) => {
+      if (!isOwner(ctx.from?.id!)) {
+        await ctx.answerCallbackQuery({ text: "⛔ فقط مالک" });
+        return;
+      }
+      const panelId = Number(ctx.match[1]);
+      const panel = db.getPanels().find((item) => item.id === panelId);
+      if (!panel) {
+        await ctx.answerCallbackQuery({ text: "پنل پیدا نشد" });
+        return;
+      }
+      await ctx.editMessageText(
+        `⚠️ پنل «${panel.name}» حذف شود؟`,
+        { reply_markup: confirmPanelDeleteMenu(panelId) },
+      );
+      await ctx.answerCallbackQuery().catch(() => {});
+    });
+
+    this.bot.callbackQuery(/^panel:delete:confirm:(\d+)$/, async (ctx) => {
+      if (!isOwner(ctx.from?.id!)) {
+        await ctx.answerCallbackQuery({ text: "⛔ فقط مالک" });
+        return;
+      }
+      const panelId = Number(ctx.match[1]);
+      const deleted = db.deletePanelById(panelId);
+      if (!deleted) {
+        await ctx.answerCallbackQuery({ text: "پنل پیدا نشد یا قبلاً حذف شده" });
+        return;
+      }
+      await ctx.editMessageText("✅ پنل حذف شد.", {
+        reply_markup: panelsMenu(db.getPanels()),
+      });
+      await ctx.answerCallbackQuery({ text: "پنل حذف شد ✅" });
     });
 
     this.bot.callbackQuery("owner:appstate", async (ctx) => {
