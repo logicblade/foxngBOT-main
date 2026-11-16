@@ -517,6 +517,9 @@ export async function approveOrder(
     await ctx.answerCallbackQuery({ text: "این سفارش توسط ادمین دیگری بررسی شد" });
     return;
   }
+  await ctx.answerCallbackQuery({ text: "در حال فعال‌سازی سفارش..." }).catch((error) => {
+    console.error("Could not acknowledge order approval callback:", error);
+  });
 
   const fresh = db.getOrderById(orderId)!;
   try {
@@ -525,7 +528,6 @@ export async function approveOrder(
     try {
       await ctx.editMessageCaption({ caption: `${orderCaption(fresh)}\n\n✅ تایید شد توسط ${reviewer}` });
     } catch {}
-    await ctx.answerCallbackQuery({ text: "تایید شد ✅" });
   } catch (e) {
     console.error("fulfill order failed", e);
     if (e instanceof PanelLoginError) {
@@ -542,14 +544,17 @@ export async function approveOrder(
           caption: `${orderCaption(fresh)}\n\n⚠️ فعال‌سازی ناموفق بود (پنل در دسترس نیست) — سفارش به حالت در انتظار برگشت`,
         });
       } catch {}
-      await ctx.answerCallbackQuery({ text: "پنل در دسترس نیست؛ سفارش به انتظار برگشت" });
       return;
     }
     // Keep it APPROVED (claimed) but inform reviewer; do NOT auto re-pend to avoid double charge.
     try {
       await ctx.api.sendMessage(fresh.tg_id, "⚠️ پرداخت شما تایید شد اما فعال‌سازی با خطا مواجه شد. پشتیبانی بررسی می‌کند.");
     } catch {}
-    await ctx.answerCallbackQuery({ text: "تایید شد ولی فعال‌سازی خطا داشت" });
+    try {
+      await ctx.reply("⚠️ پرداخت تایید شد، اما فعال‌سازی با خطا روبه‌رو شد. وضعیت سفارش را بررسی کنید.");
+    } catch (replyError) {
+      console.error("Could not notify reviewer about order fulfillment failure:", replyError);
+    }
   }
 }
 
@@ -577,6 +582,9 @@ export async function rejectOrder(
     await ctx.answerCallbackQuery({ text: "این سفارش توسط ادمین دیگری بررسی شد" });
     return;
   }
+  await ctx.answerCallbackQuery({ text: "در حال رد سفارش..." }).catch((error) => {
+    console.error("Could not acknowledge order rejection callback:", error);
+  });
   try {
     await ctx.api.sendMessage(
       order.tg_id,
@@ -586,7 +594,6 @@ export async function rejectOrder(
   try {
     await ctx.editMessageCaption({ caption: `${orderCaption(order)}\n\n❌ رد شد توسط ${reviewer}` });
   } catch {}
-  await ctx.answerCallbackQuery({ text: "رد شد ❌" });
 }
 
 export async function sendSubscriptionPhoto(
@@ -1384,9 +1391,13 @@ export async function activeSubscriberIds(db: DB): Promise<number[]> {
   return [...active];
 }
 
-async function activeSubscriptionLinks(db: DB): Promise<Map<number, string[]>> {
+type PersonalizedSubscriptionLink = { email: string; url: string };
+
+async function activeSubscriptionLinks(
+  db: DB,
+): Promise<Map<number, PersonalizedSubscriptionLink[]>> {
   const knownUsers = new Set(db.getAllUsers().map((user) => user.tg_id));
-  const linksByUser = new Map<number, Set<string>>();
+  const linksByUser = new Map<number, Map<string, PersonalizedSubscriptionLink>>();
   const now = Date.now();
 
   for (const panel of getAllPanels(db)) {
@@ -1413,7 +1424,7 @@ async function activeSubscriptionLinks(db: DB): Promise<Map<number, string[]>> {
 
         let links = linksByUser.get(userId);
         if (!links) {
-          links = new Set<string>();
+          links = new Map<string, PersonalizedSubscriptionLink>();
           linksByUser.set(userId, links);
         }
         if (!client.subId?.trim()) {
@@ -1423,7 +1434,8 @@ async function activeSubscriptionLinks(db: DB): Promise<Map<number, string[]>> {
           continue;
         }
         try {
-          links.add(await panel.getSubscriptionUrl(client.subId));
+          const url = await panel.getSubscriptionUrl(client.subId);
+          links.set(`${client.email}\0${url}`, { email: client.email, url });
         } catch (error) {
           console.error(
             `Failed to resolve subscription link for user ${userId} on panel "${panel.name}":`,
@@ -1437,7 +1449,7 @@ async function activeSubscriptionLinks(db: DB): Promise<Map<number, string[]>> {
   }
 
   return new Map(
-    [...linksByUser].map(([userId, links]) => [userId, [...links]]),
+    [...linksByUser].map(([userId, links]) => [userId, [...links.values()]]),
   );
 }
 
@@ -1531,11 +1543,14 @@ export async function handleOwnerComposedMessage(ctx: Context, db: DB): Promise<
         continue;
       }
       try {
-        const chunks: string[][] = [];
-        let chunk: string[] = [];
+        const chunks: PersonalizedSubscriptionLink[][] = [];
+        let chunk: PersonalizedSubscriptionLink[] = [];
         for (const link of links) {
           const candidate = [...chunk, link];
-          const message = `${text}\n\n🔗 لینک سابسکریپشن:\n${candidate.join("\n")}`;
+          const linkText = candidate
+            .map((item) => `👤 ایمیل کلاینت: ${item.email}\n🔗 ${item.url}`)
+            .join("\n\n");
+          const message = `${text}\n\n${linkText}`;
           if (message.length > 4096 && chunk.length > 0) {
             chunks.push(chunk);
             chunk = [link];
@@ -1548,9 +1563,12 @@ export async function handleOwnerComposedMessage(ctx: Context, db: DB): Promise<
         if (chunk.length > 0) chunks.push(chunk);
 
         for (const linkChunk of chunks) {
+          const linkText = linkChunk
+            .map((item) => `👤 ایمیل کلاینت: ${item.email}\n🔗 ${item.url}`)
+            .join("\n\n");
           await ctx.api.sendMessage(
             userId,
-            `${text}\n\n🔗 لینک سابسکریپشن:\n${linkChunk.join("\n")}`,
+            `${text}\n\n${linkText}`,
           );
           await Util.sleep(60);
         }

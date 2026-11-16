@@ -647,10 +647,15 @@ export class TelBot {
       const pending = pendingCreates.get(userId);
       if (!pending)
         return await ctx.answerCallbackQuery({ text: "No pending request" });
+      await ctx.answerCallbackQuery({ text: "در حال فعال‌سازی سفارش..." }).catch((error) => {
+        console.error("Could not acknowledge legacy create approval callback:", error);
+      });
 
       const panels = getAllPanels(db);
-      if (panels.length === 0)
-        return await ctx.answerCallbackQuery({ text: "No panels available" });
+      if (panels.length === 0) {
+        await ctx.reply("⚠️ هیچ پنلی برای فعال‌سازی تنظیم نشده است.");
+        return;
+      }
 
       for (const panel of panels) {
         if (panel.name === WHICH_PANEL) {
@@ -735,10 +740,9 @@ export class TelBot {
               },
             );
             await ctx.reply("تایید شد ✅");
-            await ctx.answerCallbackQuery();
           } else {
             console.log(res.status, responseBody);
-            await ctx.answerCallbackQuery({ text: "خطا در ساخت اشتراک!" });
+            await ctx.reply("⚠️ خطا در ساخت اشتراک رخ داد.");
           }
           break;
         }
@@ -755,6 +759,9 @@ export class TelBot {
       const pending = pendingRenewals.get(userId);
       if (!pending)
         return await ctx.answerCallbackQuery({ text: "No pending request" });
+      await ctx.answerCallbackQuery({ text: "در حال تمدید اشتراک..." }).catch((error) => {
+        console.error("Could not acknowledge legacy renewal callback:", error);
+      });
 
       const { UUID, inboundID } = pendingConfig.get(userId)!;
       const type = pendingConfigType.get(userId)!;
@@ -777,7 +784,8 @@ export class TelBot {
 
       const panel = await getConfigsPanel(UUID, db);
       if (!panel) {
-        return await ctx.answerCallbackQuery({ text: "Panel not found!" });
+        await ctx.reply("⚠️ پنل اشتراک پیدا نشد.");
+        return;
       }
       await panel.validateSubscriptionSettings();
       const stored = await panel.getStoredClient(email);
@@ -847,7 +855,6 @@ export class TelBot {
             },
           );
           await ctx.reply("تایید شد ✅");
-          await ctx.answerCallbackQuery();
         }
       } else {
         console.log(res.status);
