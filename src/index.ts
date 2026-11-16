@@ -26,33 +26,43 @@ const remider = new CronJob(
 
 remider.start();
 
-const LOW_DISK_THRESHOLD = 200 * 1024 * 1024;
-let lowDiskAlertSent = false;
+const HIGH_DISK_THRESHOLD_PERCENT = 90;
+const diskAlertSentTo = new Set<number>();
 
 async function checkDiskSpaceAlert() {
   try {
     const disk = await getDiskSpace();
-    const isLow = disk.freeBytes < LOW_DISK_THRESHOLD;
-    if (!isLow) {
-      lowDiskAlertSent = false;
+    if (disk.usedPercent < HIGH_DISK_THRESHOLD_PERCENT) {
+      diskAlertSentTo.clear();
       return;
     }
-    if (lowDiskAlertSent) return;
 
-    const ownerId = [...ownerIds()][0];
-    if (!ownerId) return;
-    await bot.bot.api.sendMessage(
-      ownerId,
-      `⚠️ هشدار فضای دیسک سرور\n\nفضای باقی‌مانده فقط ${formatBytes(disk.freeBytes)} است و کمتر از ۲۰۰ مگابایت شده است.`,
-    );
-    lowDiskAlertSent = true;
+    const recipients = new Set([
+      ...ownerIds(),
+      ...db.getAdmins().map((admin) => admin.tg_id),
+    ]);
+    const message =
+      `⚠️ هشدار فضای دیسک سرور\n\n` +
+      `فضای مصرف‌شده به ${disk.usedPercent.toFixed(1)}٪ رسیده است ` +
+      `(حد هشدار: ${HIGH_DISK_THRESHOLD_PERCENT}٪).\n` +
+      `📦 فضای باقی‌مانده: ${formatBytes(disk.freeBytes)}`;
+
+    for (const recipient of recipients) {
+      if (diskAlertSentTo.has(recipient)) continue;
+      try {
+        await bot.bot.api.sendMessage(recipient, message);
+        diskAlertSentTo.add(recipient);
+      } catch (error) {
+        console.error(`Could not send disk alert to ${recipient}:`, error);
+      }
+    }
   } catch (error) {
     console.error("Disk space alert check failed:", error);
   }
 }
 
 const diskSpaceReminder = new CronJob(
-  "00 00 15 * * *",
+  "00 00 09 * * *",
   async function () {
     await checkDiskSpaceAlert();
   },
