@@ -74,6 +74,7 @@ import {
   backToMainMenu,
   cancelActionMenu,
   confirmPanelDeleteMenu,
+  membershipRequiredMenu,
   orderCleanupConfirmMenu,
   orderDecisionMenu,
   panelsMenu,
@@ -85,12 +86,64 @@ import { getAllPanels } from "../panel/panel";
 import { WHICH_INBOUND, WHICH_PANEL } from "../config";
 
 export const creatingEmail = new Map<number, string>();
+const REQUIRED_CHANNEL = "@FOXNGNEWS";
 
 export class TelBot {
   bot: Bot<ConversationFlavor<Context>>;
 
   constructor(token: string, db: DB) {
     this.bot = new Bot<ConversationFlavor<Context>>(token);
+
+    this.bot.use(async (ctx, next) => {
+      const user = ctx.from;
+      if (
+        !user ||
+        isAdminOrOwner(db, user.id)
+      ) {
+        await next();
+        return;
+      }
+
+      let isMember = false;
+      try {
+        const member = await ctx.api.getChatMember(REQUIRED_CHANNEL, user.id);
+        isMember =
+          member.status === "creator" ||
+          member.status === "administrator" ||
+          member.status === "member" ||
+          (member.status === "restricted" && member.is_member);
+      } catch (error) {
+        console.error(`Could not check membership in ${REQUIRED_CHANNEL}:`, error);
+        if (ctx.callbackQuery) {
+          await ctx.answerCallbackQuery({
+            text: "بررسی عضویت ممکن نشد. لطفاً کمی بعد دوباره تلاش کنید.",
+          }).catch((callbackError) => {
+            console.error("Could not acknowledge membership check:", callbackError);
+          });
+        }
+        await ctx.reply(
+          "⚠️ در حال حاضر امکان بررسی عضویت وجود ندارد. لطفاً کمی بعد دوباره تلاش کنید.",
+        );
+        return;
+      }
+
+      if (!isMember) {
+        if (ctx.callbackQuery) {
+          await ctx.answerCallbackQuery({
+            text: "برای استفاده از ربات ابتدا در کانال عضو شوید.",
+          }).catch((error) => {
+            console.error("Could not acknowledge membership check:", error);
+          });
+        }
+        await ctx.reply(
+          "🚀 برای استفاده از ربات، ابتدا تو کانال خبری ما عضو شو تا اخبار اینترنتو از دست ندی 🦊\n و سپس «عضو شدم» را بزنید 👇",
+          { reply_markup: membershipRequiredMenu() },
+        );
+        return;
+      }
+
+      await next();
+    });
 
     this.bot.use(conversations());
     this.bot.use(createConversation(addPanelConv));
@@ -99,6 +152,17 @@ export class TelBot {
     this.bot.command("start", async (ctx) => {
       const tgId = ctx.from?.id!;
       db.upsertUser(tgId, ctx.from?.first_name, ctx.from?.username);
+      if (isAdminOrOwner(db, tgId)) {
+        await handleStartCommandForAdmin(ctx, db);
+      } else {
+        await handleStartCommandForUser(ctx, db);
+      }
+    });
+
+    this.bot.callbackQuery("membership:check", async (ctx) => {
+      const tgId = ctx.from.id;
+      db.upsertUser(tgId, ctx.from.first_name, ctx.from.username);
+      await ctx.answerCallbackQuery({ text: "عضویت تأیید شد ✅" });
       if (isAdminOrOwner(db, tgId)) {
         await handleStartCommandForAdmin(ctx, db);
       } else {

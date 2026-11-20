@@ -43,6 +43,10 @@ only protection.
 
 Remember to start the conversation with your bot as admin to add your 3X-UI panel URL and information.
 
+Users must join [@FOXNGNEWS](https://t.me/FOXNGNEWS) to use the bot. Add the bot as an administrator
+of that channel so Telegram allows it to verify users' membership. Owners and admins can continue
+using the bot without joining.
+
 ### Development
 
 To install dependencies:

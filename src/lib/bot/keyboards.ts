@@ -9,7 +9,15 @@ export const CB = {
   userSupport: "user:support",
   userGetConfig: "user:getconfig",
   adminMain: "admin:main",
+  membershipCheck: "membership:check",
 } as const;
+
+export function membershipRequiredMenu(): InlineKeyboard {
+  return new InlineKeyboard()
+    .url("📢 عضویت در کانال", "https://t.me/FOXNGNEWS")
+    .row()
+    .text("✅ عضو شدم", CB.membershipCheck);
+}
 
 export function userMainMenu(): InlineKeyboard {
   return new InlineKeyboard()
